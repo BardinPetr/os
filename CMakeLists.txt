@@ -4,7 +4,7 @@ set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
 project(os C)
 
 set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_FLAGS "-std=c17 -ffreestanding -O2 -Wall -Wextra")
+set(CMAKE_C_FLAGS "-std=c17 -ffreestanding -O2 -Wall -Wextra -masm=intel")
 
 # link
 set(LINKER_SCRIPT "linker.ld")
