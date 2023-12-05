@@ -1,25 +1,17 @@
-%include "src/boot/multiboot.nasm"
-
 ; allocate stack
 section .bss
-align 16
-    stack_bottom:
-    resb 16*1024
-    stack_top:
-
+stack_bottom: resb 16*1024
+stack_top:
 
 section .text
-global _start:function (_start.end - _start)
-_start:
+bits 64
+
+global _start64
+_start64:
     ; prepare stack
-    mov     esp, stack_top
+    mov rsp, stack_top
 
-    ; start
-    extern  kernel_init
-    call    kernel_init
+    extern kernel_init
+    call kernel_init
 
-    cli
-.hang:
     hlt
-    jmp .hang
-.end:

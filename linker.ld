@@ -1,28 +1,49 @@
-ENTRY(_start)
+KERNEL_LMA = 0x0000000000000000 + 1M;
+KERNEL_VMA = 0;
+/*KERNEL_VMA = 0xffffffff80000000;*/
+
+ENTRY(_bootstrap)
 
 SECTIONS
 {
-    . = 2M;
+    . = KERNEL_LMA;
 
-    .text BLOCK(4K) : ALIGN(4K)
+    .bootstrap :
     {
-        *(.multiboot)
-        *(.text)
+        *(.multiboot2);
+        *bootstrap64*(.text);
     }
 
-    .rodata BLOCK(4K) : ALIGN(4K)
+    . += KERNEL_VMA;
+
+    _kernel_start = .;
+
+    .text ALIGN(4K) : AT(ADDR(.text) - KERNEL_VMA)
     {
-        *(.rodata)
+        _kernel_code = .;
+        *(EXCLUDE_FILE(*bootstrap64*) .text)
     }
 
-    .data BLOCK(4K) : ALIGN(4K)
+    .data ALIGN(4K) : AT(ADDR(.data) - KERNEL_VMA)
     {
         *(.data)
     }
 
-    .bss BLOCK(4K) : ALIGN(4K)
+    .eh_frame ALIGN(4K) : AT(ADDR(.eh_frame) - KERNEL_VMA)
     {
-        *(COMMON)
-        *(.bss)
+        *(.eh_frame)
     }
+
+    .bss ALIGN(4K) : AT(ADDR(.bss) - KERNEL_VMA)
+    {
+        *(.bss)
+        *(COMMON)
+    }
+
+    .rodata ALIGN(4K) : AT (ADDR (.rodata) - KERNEL_VMA)
+    {
+        *(.rodata)
+    }
+
+    _kernel_end = .;
 }
