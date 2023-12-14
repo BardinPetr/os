@@ -1,9 +1,21 @@
+; that code is loaded by GRUB at 1M and in protected mode
+; sets up paging and runs with identity paging firstly
+; than maps kernel to KERNEL_VMA
+; switch to compatibility long mode
+; then with configuring gdt sector jump into 64bit long mode
+; final target is to call kernel_init procedure
+; setting up paging and GDT for OS is on kernel_init
+
+KERNEL_VMA equ 0xFFFFFF8000000000
+%define PHY(vmem) (vmem - KERNEL_VMA)
+
 MSR_IA32_EFER equ 0xC0000080
 
-PT_ENTRY_SIZE equ 8
+PT_ENTRY_COUNT equ 512
 PT_ENTRY_P equ 1 << 0
 PT_ENTRY_W equ 1 << 1
 PT_ENTRY_H equ 1 << 7
+PT_ENTRY_PW equ PT_ENTRY_P | PT_ENTRY_W
 
 GDT_ACCESS_OFFSET equ 40
 GDT_FLAGS_OFFSET equ 52
@@ -20,46 +32,49 @@ GDT_ENTRY_FLAGS_L       equ 1 << (GDT_FLAGS_OFFSET  + 1)
 
 
 section .bss
+align 0x1000
 stack_bottom: resb 16*1024
 stack_top:
 
-align 4096
-page_table_l4:
-    resb 4096
-page_table_l3:
-    resb 4096
-page_table_l2:
-    resb 4096
-
-
 
 section .rodata
+align 0x1000
+page_table_l4:
+    ; identity mapping
+    dq (PHY(page_table_l3) + PT_ENTRY_PW)
+    times PT_ENTRY_COUNT-2 dq 0
+    ; mapping into ff80_0000_0000h
+    dq (PHY(page_table_l3) + PT_ENTRY_PW)
+
+page_table_l3:
+    dq (PHY(page_table_l2) + PT_ENTRY_PW)
+    times PT_ENTRY_COUNT-1 dq 0
+
+page_table_l2:
+    dq (PT_ENTRY_PW | PT_ENTRY_H)   ; first 2M of physical mem
+    times PT_ENTRY_COUNT-1 dq 0
+
 gdt:
     dq 0
 .code: equ $ - gdt
     dq (GDT_ENTRY_ACCESS_P | GDT_ENTRY_ACCESS_DPL0 | GDT_ENTRY_ACCESS_E | GDT_ENTRY_ACCESS_S | GDT_ENTRY_FLAGS_L)
 .gdtr_contents:
     dw $ - gdt - 1
-    dq gdt
-
+    dq PHY(gdt)
 
 
 section .data
-msg_start: db 'bootstrap started  ', 0
-msg_paging: db 'paging set  ', 0
-msg_gdt: db 'gdt set  ', 0
-msg_end: db 'bootstrap end  ', 0
-msg_64ok: db '64BIT  ', 0
-msg_64err: db '32BIT  ', 0
 term_pos: dd 0xb8000
-
-
+msg_start: db 'bootstrap started. ', 0
+msg_paging: db 'paging set.  ', 0
+msg_gdt: db 'gdt set.  ', 0
+msg_64ok: db 'long mode!  ', 0
+msg_64err: db 'switch failed.  ', 0
 
 section .text
 bits 32
-
 write_string:
-    mov ebx, [term_pos]
+    mov ebx, [PHY(term_pos)]
 
     xor ecx, ecx
     xor eax, eax
@@ -73,10 +88,9 @@ write_string:
         inc ecx
         jmp .loop
 
-
     .end:
     sal ecx, 1
-    add [term_pos], ecx
+    add [PHY(term_pos)], ecx
     ret
 
 
@@ -85,49 +99,29 @@ test_64:
     rdmsr
     bt eax, 10
     jc .ok_64
-    mov edi, msg_64err
+    mov edi, PHY(msg_64err)
     call write_string
-    jmp .end
+    hlt
 .ok_64:
-    mov edi, msg_64ok
+    mov edi, PHY(msg_64ok)
     call write_string
 .end:
     ret
 
-setup_paging_tables:
-    ; Page directory base (CR3.PDBR bit 12-31)
-    mov eax, page_table_l4
-    mov cr3, eax
-
-    ; do identity mapping for 1GiB
-
-    mov eax, page_table_l3
-    or eax, PT_ENTRY_P | PT_ENTRY_W
-    mov [page_table_l4], eax
-
-    mov eax, page_table_l2
-    or eax, PT_ENTRY_P | PT_ENTRY_W
-    mov [page_table_l3], eax
-
-    ; 2MiB pages
-    xor ecx, ecx
-.l2_entry:
-    mov eax, 2*1024*1024
-    mul ecx
-    or eax, PT_ENTRY_P | PT_ENTRY_W | PT_ENTRY_H
-    mov [page_table_l2 + ecx*PT_ENTRY_SIZE], eax
-
-    inc ecx
-    cmp ecx, 512
-    jne .l2_entry
-
-    ret
-
 
 setup_paging:
+    ; Page directory base (CR3.PDBR bit 12-31)
+    mov eax, PHY(page_table_l4)
+    mov cr3, eax
+
     ; PAE on (CR4.PAE bit 5)
     mov eax, cr4
     bts eax, 5
+    mov cr4, eax
+
+    ; PSE on (CR4.PSE bit 5)
+    mov eax, cr4
+    bts eax, 4
     mov cr4, eax
 
     ; Long mode enable (IA32_EFER.LME bit 8)
@@ -142,36 +136,51 @@ setup_paging:
     mov cr0, eax
     ret
 
-setup_gdt:
-    lgdt [gdt.gdtr_contents]
-    ret
-
 
 global _bootstrap
 _bootstrap:
-    cli
-    mov esp, stack_top
+    mov dword esp, PHY(stack_top)
 
-    call test_64
-
-    mov edi, msg_start
+    mov dword edi, PHY(msg_start)
     call write_string
 
-    call setup_paging_tables
     call setup_paging
 
-    mov edi, msg_paging
+    mov dword edi, PHY(msg_paging)
     call write_string
-
-    call setup_gdt
-
-    mov edi, msg_gdt
-    call write_string
-
     call test_64
 
-    extern _start64
-    jmp gdt.code:_start64
+setup_gdt:
+    lgdt [PHY(gdt.gdtr_contents)]
+
+    ; jump to 64bit code segment -> set cs
+    jmp gdt.code:PHY(_bootstrap_64)
+
+bits 64
+_bootstrap_64:
+    mov rax, 0x0
+    mov ds, rax
+    mov es, rax
+    mov fs, rax
+    mov gs, rax
+    mov ss, rax
+
+    ; jump into target address space from KERNEL_VMA
+    mov rax, _bootstrap_higher
+    jmp rax
+_bootstrap_higher:
+    ; unmap identity 0-2MB
+    mov rax, page_table_l4
+    mov qword [rax], 0
+
+    ; clear tlb
+    mov rax, cr3
+    mov cr3, rax
+
+start_kernel:
+    mov rsp, stack_top
+
+    extern kernel_init
+    call kernel_init
 
     hlt
-
