@@ -1,0 +1,12 @@
+{
+  "ros.distro": "melodic",
+  "files.associations": {
+    "*.S": "gas",
+    "tty.h": "c",
+    "multiboot2.h": "c",
+    "limits.h": "c",
+    "serial.h": "c",
+    "io.h": "c",
+    "stdint.h": "c"
+  }
+}

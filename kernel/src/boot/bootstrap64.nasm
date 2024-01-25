@@ -140,6 +140,8 @@ setup_paging:
 global _bootstrap
 _bootstrap:
     mov dword esp, PHY(stack_top)
+    push eax
+    push ebx
 
     mov dword edi, PHY(msg_start)
     call write_string
@@ -149,6 +151,9 @@ _bootstrap:
     mov dword edi, PHY(msg_paging)
     call write_string
     call test_64
+
+    pop esi
+    pop edi
 
 setup_gdt:
     lgdt [PHY(gdt.gdtr_contents)]
